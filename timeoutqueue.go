@@ -69,16 +69,25 @@ func (tq *TimeoutQueue) run() {
 			time.Sleep(d)
 			continue
 		}
-		tq.remove(int(tq.head))
+		tq.freeNode(int(tq.head))
 		tq.Unlock()
 		go n.action()
 	}
 }
 
-// IMPORTANT NOTE
-// remove actually requires a mux lock - but all callers already have a mux
-// lock, so rather than unlocking and reaquiring, we just call and unlock when
-// done.
+/* IMPORTANT NOTE */
+// add, remove and freeNode actually requires a mux lock - but all callers already
+// have a mux lock, so rather than unlocking and reaquiring, we just call and
+// unlock when done.
+func (tq *TimeoutQueue) add(nodeIdx int) {
+	if tq.head == empty {
+		tq.head = uint32(nodeIdx)
+	} else {
+		tq.nodes[tq.tail].next = uint32(nodeIdx)
+	}
+	tq.tail = uint32(nodeIdx)
+}
+
 func (tq *TimeoutQueue) remove(nodeIdx int) {
 	n := tq.nodes[nodeIdx]
 	if n.prev == empty {
@@ -91,6 +100,10 @@ func (tq *TimeoutQueue) remove(nodeIdx int) {
 	} else {
 		tq.nodes[n.next].prev = n.prev
 	}
+}
+
+func (tq *TimeoutQueue) freeNode(nodeIdx int) {
+	tq.remove(nodeIdx)
 	tq.nodes[nodeIdx].next = tq.free
 	tq.nodes[nodeIdx].actionID++
 	tq.nodes[nodeIdx].action = nil
@@ -123,12 +136,7 @@ func (tq *TimeoutQueue) Add(action TimeoutAction) Token {
 		tq.nodes[t.nodeIdx].action = action
 		t.actionID = tq.nodes[t.nodeIdx].actionID
 	}
-	if tq.head == empty {
-		tq.head = uint32(t.nodeIdx)
-	} else {
-		tq.nodes[tq.tail].next = uint32(t.nodeIdx)
-	}
-	tq.tail = uint32(t.nodeIdx)
+	tq.add(t.nodeIdx)
 	if !tq.running {
 		tq.running = true
 		go tq.run()
@@ -149,7 +157,7 @@ func (t token) Cancel() bool {
 	n := t.tq.nodes[t.nodeIdx]
 	remove := n.action != nil && n.actionID == t.actionID
 	if remove {
-		t.tq.remove(t.nodeIdx)
+		t.tq.freeNode(t.nodeIdx)
 	}
 	t.tq.Unlock()
 	return remove
@@ -161,35 +169,19 @@ func (t token) Reset() bool {
 	t.tq.Lock()
 
 	n := t.tq.nodes[t.nodeIdx]
-	ok := n.action != nil && n.actionID == t.actionID
-	if !ok {
+	if n.action == nil || n.actionID != t.actionID {
 		t.tq.Unlock()
 		return false
 	}
 	n.timeout = timeout
 
-	// remove node from middle of list
-	if n.prev == empty {
-		t.tq.head = n.next
-	} else {
-		t.tq.nodes[n.prev].next = n.next
-	}
-	if n.next == empty {
-		t.tq.tail = n.prev
-	} else {
-		t.tq.nodes[n.next].prev = n.prev
-	}
+	t.tq.remove(t.nodeIdx)
 
 	// add to end of list
 	n.next = empty
 	n.prev = t.tq.tail
-	if t.tq.head == empty {
-		t.tq.head = uint32(t.nodeIdx)
-	} else {
-		t.tq.nodes[t.tq.tail].next = uint32(t.nodeIdx)
-	}
-	t.tq.tail = uint32(t.nodeIdx)
 	t.tq.nodes[t.nodeIdx] = n
+	t.tq.add(t.nodeIdx)
 
 	t.tq.Unlock()
 	return true
