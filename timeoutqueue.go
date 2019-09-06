@@ -163,6 +163,7 @@ func (t token) Reset() bool {
 	n := t.tq.nodes[t.nodeIdx]
 	ok := n.action != nil && n.actionID == t.actionID
 	if !ok {
+		t.tq.Unlock()
 		return false
 	}
 	n.timeout = timeout
