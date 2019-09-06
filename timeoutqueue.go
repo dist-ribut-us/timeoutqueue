@@ -36,7 +36,7 @@ type TimeoutQueue struct {
 	// free nodes form a singly linked list
 	free  uint32
 	nodes []node
-	sync.Mutex
+	mux   sync.Mutex
 }
 
 // New returns a TimeoutQueue. This is the point at which timeout is set and
@@ -57,20 +57,20 @@ func New(timeout time.Duration, capacity int) *TimeoutQueue {
 func (tq *TimeoutQueue) run() {
 	time.Sleep(tq.timeout)
 	for {
-		tq.Lock()
+		tq.mux.Lock()
 		if tq.head == empty {
 			tq.running = false
-			tq.Unlock()
+			tq.mux.Unlock()
 			return
 		}
 		n := tq.nodes[tq.head]
 		if d := n.timeout.Sub(time.Now()); d > 0 {
-			tq.Unlock()
+			tq.mux.Unlock()
 			time.Sleep(d)
 			continue
 		}
 		tq.freeNode(tq.head)
-		tq.Unlock()
+		tq.mux.Unlock()
 		go n.action()
 	}
 }
@@ -119,7 +119,7 @@ func (tq *TimeoutQueue) Add(action TimeoutAction) Token {
 		tq: tq,
 	}
 
-	tq.Lock()
+	tq.mux.Lock()
 	if tq.free == empty {
 		t.nodeIdx = uint32(len(tq.nodes))
 		tq.nodes = append(tq.nodes, node{
@@ -141,7 +141,7 @@ func (tq *TimeoutQueue) Add(action TimeoutAction) Token {
 		tq.running = true
 		go tq.run()
 	}
-	tq.Unlock()
+	tq.mux.Unlock()
 
 	return t
 }
@@ -153,24 +153,24 @@ type token struct {
 }
 
 func (t token) Cancel() bool {
-	t.tq.Lock()
+	t.tq.mux.Lock()
 	n := t.tq.nodes[t.nodeIdx]
 	remove := n.action != nil && n.actionID == t.actionID
 	if remove {
 		t.tq.freeNode(t.nodeIdx)
 	}
-	t.tq.Unlock()
+	t.tq.mux.Unlock()
 	return remove
 }
 
 func (t token) Reset() bool {
 	timeout := time.Now().Add(t.tq.timeout)
 
-	t.tq.Lock()
+	t.tq.mux.Lock()
 
 	n := t.tq.nodes[t.nodeIdx]
 	if n.action == nil || n.actionID != t.actionID {
-		t.tq.Unlock()
+		t.tq.mux.Unlock()
 		return false
 	}
 	n.timeout = timeout
@@ -183,7 +183,7 @@ func (t token) Reset() bool {
 	t.tq.nodes[t.nodeIdx] = n
 	t.tq.add(t.nodeIdx)
 
-	t.tq.Unlock()
+	t.tq.mux.Unlock()
 	return true
 }
 
