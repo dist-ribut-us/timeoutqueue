@@ -97,9 +97,9 @@ func (tq *TimeoutQueue) remove(nodeIdx int) {
 	tq.free = uint32(nodeIdx)
 }
 
-// Add takes a TimeoutAction and adds it to the queue. It returns a Cancel, that
-// if called, will cancel the TimeoutAction. If cancel is not called,
-// TimeoutAction will be called after the TimeoutQueue's timeout duration.
+// Add takes a TimeoutAction and adds it to the queue. The TimeoutAction will be
+// called after the TimeoutQueue's timeout duration unless modified by a Token
+// method.
 func (tq *TimeoutQueue) Add(action TimeoutAction) Token {
 	timeout := time.Now().Add(tq.timeout)
 	t := token{
@@ -196,8 +196,17 @@ func (t token) Reset() bool {
 
 func (token) private() {}
 
+// Token represents a TimeoutAction that was registered.
 type Token interface {
 	private()
+	// Cancel will remove the TimeoutAction from the queue. The returned bool
+	// indicates if the Cancel happened. Returning false means that the
+	// TimeoutAction was either previously canceled or the TimeoutAction has
+	// already run.
 	Cancel() bool
+	// Reset the timeout to the TimeoutQueue's duration. The returned bool
+	// indicates if the Cancel happened. Returning false means that the
+	// TimeoutAction was either previously canceled or the TimeoutAction has
+	// already run.
 	Reset() bool
 }
