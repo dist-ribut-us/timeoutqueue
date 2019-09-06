@@ -62,4 +62,7 @@ func TestLinkedLists(t *testing.T) {
 	assert.EqualValues(t, empty, tq.head)
 	assert.EqualValues(t, empty, tq.tail)
 	assert.EqualValues(t, 1, tq.free)
+
+	// Just to get to 100% test coverage
+	Token(token{}).private()
 }

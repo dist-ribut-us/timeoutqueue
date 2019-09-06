@@ -1,7 +1,7 @@
 package timeoutqueue_test
 
 import (
-	"github.com/dist-ribut-us/testutil/timeout"
+	"github.com/dist-ribut-us/timeout"
 	"github.com/dist-ribut-us/timeoutqueue"
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -30,7 +30,7 @@ func TestTimeoutQueue(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	tq := timeoutqueue.New(time.Millisecond*10, 2)
+	tq := timeoutqueue.New(time.Millisecond*6, 2)
 	ch := make(chan int)
 
 	tokens := []timeoutqueue.Token{
@@ -41,7 +41,7 @@ func TestReset(t *testing.T) {
 
 	time.Sleep(time.Millisecond)
 	assert.True(t, tokens[1].Reset())
-	assert.NoError(t, timeout.After(20, func() {
+	assert.NoError(t, timeout.After(10, func() {
 		assert.Equal(t, 1, <-ch)
 		assert.Equal(t, 3, <-ch)
 		assert.Equal(t, 2, <-ch)
@@ -57,8 +57,9 @@ func TestReset(t *testing.T) {
 	assert.True(t, tokens[1].Reset())
 	assert.True(t, tokens[0].Reset())
 	assert.True(t, tokens[1].Cancel())
+	assert.False(t, tokens[1].Reset())
 	tq.Add(getAction(ch, 4))
-	assert.NoError(t, timeout.After(20, func() {
+	assert.NoError(t, timeout.After(10, func() {
 		assert.Equal(t, 3, <-ch)
 		assert.Equal(t, 1, <-ch)
 		assert.Equal(t, 4, <-ch)
@@ -66,7 +67,7 @@ func TestReset(t *testing.T) {
 }
 
 func getAction(ch chan<- int, i int) func() {
-	time.Sleep(time.Millisecond * 2)
+	time.Sleep(time.Millisecond)
 	return func() {
 		ch <- i
 	}
