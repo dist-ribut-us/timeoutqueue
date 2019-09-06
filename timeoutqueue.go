@@ -69,7 +69,7 @@ func (tq *TimeoutQueue) run() {
 			time.Sleep(d)
 			continue
 		}
-		tq.freeNode(int(tq.head))
+		tq.freeNode(tq.head)
 		tq.Unlock()
 		go n.action()
 	}
@@ -79,16 +79,16 @@ func (tq *TimeoutQueue) run() {
 // add, remove and freeNode actually requires a mux lock - but all callers already
 // have a mux lock, so rather than unlocking and reaquiring, we just call and
 // unlock when done.
-func (tq *TimeoutQueue) add(nodeIdx int) {
+func (tq *TimeoutQueue) add(nodeIdx uint32) {
 	if tq.head == empty {
-		tq.head = uint32(nodeIdx)
+		tq.head = nodeIdx
 	} else {
-		tq.nodes[tq.tail].next = uint32(nodeIdx)
+		tq.nodes[tq.tail].next = nodeIdx
 	}
-	tq.tail = uint32(nodeIdx)
+	tq.tail = nodeIdx
 }
 
-func (tq *TimeoutQueue) remove(nodeIdx int) {
+func (tq *TimeoutQueue) remove(nodeIdx uint32) {
 	n := tq.nodes[nodeIdx]
 	if n.prev == empty {
 		tq.head = n.next
@@ -102,12 +102,12 @@ func (tq *TimeoutQueue) remove(nodeIdx int) {
 	}
 }
 
-func (tq *TimeoutQueue) freeNode(nodeIdx int) {
+func (tq *TimeoutQueue) freeNode(nodeIdx uint32) {
 	tq.remove(nodeIdx)
 	tq.nodes[nodeIdx].next = tq.free
 	tq.nodes[nodeIdx].actionID++
 	tq.nodes[nodeIdx].action = nil
-	tq.free = uint32(nodeIdx)
+	tq.free = nodeIdx
 }
 
 // Add takes a TimeoutAction and adds it to the queue. The TimeoutAction will be
@@ -121,7 +121,7 @@ func (tq *TimeoutQueue) Add(action TimeoutAction) Token {
 
 	tq.Lock()
 	if tq.free == empty {
-		t.nodeIdx = len(tq.nodes)
+		t.nodeIdx = uint32(len(tq.nodes))
 		tq.nodes = append(tq.nodes, node{
 			next:    empty,
 			prev:    tq.tail,
@@ -129,7 +129,7 @@ func (tq *TimeoutQueue) Add(action TimeoutAction) Token {
 			action:  action,
 		})
 	} else {
-		t.nodeIdx, tq.free = int(tq.free), tq.nodes[tq.free].next
+		t.nodeIdx, tq.free = tq.free, tq.nodes[tq.free].next
 		tq.nodes[t.nodeIdx].next = empty
 		tq.nodes[t.nodeIdx].prev = tq.tail
 		tq.nodes[t.nodeIdx].timeout = timeout
@@ -148,7 +148,7 @@ func (tq *TimeoutQueue) Add(action TimeoutAction) Token {
 
 type token struct {
 	tq       *TimeoutQueue
-	nodeIdx  int //TODO: make this uint32
+	nodeIdx  uint32
 	actionID uint32
 }
 
