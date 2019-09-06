@@ -19,8 +19,10 @@ const empty = ^uint32(0)
 type node struct {
 	next, prev uint32
 	timeout    time.Time
-	id         uint32
-	action     TimeoutAction
+	// actionID is incremented each time the node is reused to prevent a previous
+	// cancel from working on a later action
+	actionID uint32
+	action   TimeoutAction
 }
 
 // TimeoutQueue manages a queue of TimeoutActions that may be canceled before
@@ -69,7 +71,7 @@ func (tq *TimeoutQueue) run() {
 		}
 		tq.remove(int(tq.head))
 		tq.Unlock()
-		n.action()
+		go n.action()
 	}
 }
 
@@ -90,28 +92,23 @@ func (tq *TimeoutQueue) remove(nodeIdx int) {
 		tq.nodes[n.next].prev = n.prev
 	}
 	tq.nodes[nodeIdx].next = tq.free
-	tq.nodes[nodeIdx].id++
+	tq.nodes[nodeIdx].actionID++
 	tq.nodes[nodeIdx].action = nil
 	tq.free = uint32(nodeIdx)
 }
 
-// Cancel is returned by Add. It is a function that will cancel the
-// TimeoutAction that was passed in. It returns a bool indicating if the cancel
-// happened. Cancel will return false if the TimeoutAction has already been
-// called or if Cancel has already been called.
-type Cancel func() bool
-
 // Add takes a TimeoutAction and adds it to the queue. It returns a Cancel, that
 // if called, will cancel the TimeoutAction. If cancel is not called,
 // TimeoutAction will be called after the TimeoutQueue's timeout duration.
-func (tq *TimeoutQueue) Add(action TimeoutAction) Cancel {
-	var nodeIdx int
-	var actionID uint32
+func (tq *TimeoutQueue) Add(action TimeoutAction) Token {
 	timeout := time.Now().Add(tq.timeout)
+	t := token{
+		tq: tq,
+	}
 
 	tq.Lock()
 	if tq.free == empty {
-		nodeIdx = len(tq.nodes)
+		t.nodeIdx = len(tq.nodes)
 		tq.nodes = append(tq.nodes, node{
 			next:    empty,
 			prev:    tq.tail,
@@ -119,33 +116,88 @@ func (tq *TimeoutQueue) Add(action TimeoutAction) Cancel {
 			action:  action,
 		})
 	} else {
-		nodeIdx, tq.free = int(tq.free), tq.nodes[tq.free].next
-		tq.nodes[nodeIdx].next = empty
-		tq.nodes[nodeIdx].prev = tq.tail
-		tq.nodes[nodeIdx].timeout = timeout
-		tq.nodes[nodeIdx].action = action
-		actionID = tq.nodes[nodeIdx].id
+		t.nodeIdx, tq.free = int(tq.free), tq.nodes[tq.free].next
+		tq.nodes[t.nodeIdx].next = empty
+		tq.nodes[t.nodeIdx].prev = tq.tail
+		tq.nodes[t.nodeIdx].timeout = timeout
+		tq.nodes[t.nodeIdx].action = action
+		t.actionID = tq.nodes[t.nodeIdx].actionID
 	}
 	if tq.head == empty {
-		tq.head = uint32(nodeIdx)
+		tq.head = uint32(t.nodeIdx)
 	} else {
-		tq.nodes[tq.tail].next = uint32(nodeIdx)
+		tq.nodes[tq.tail].next = uint32(t.nodeIdx)
 	}
-	tq.tail = uint32(nodeIdx)
+	tq.tail = uint32(t.nodeIdx)
 	if !tq.running {
 		tq.running = true
 		go tq.run()
 	}
 	tq.Unlock()
 
-	return func() bool {
-		tq.Lock()
-		n := tq.nodes[nodeIdx]
-		remove := n.action != nil && n.id == actionID
-		if remove {
-			tq.remove(nodeIdx)
-		}
-		tq.Unlock()
-		return remove
+	return t
+}
+
+type token struct {
+	tq       *TimeoutQueue
+	nodeIdx  int //TODO: make this uint32
+	actionID uint32
+}
+
+func (t token) Cancel() bool {
+	t.tq.Lock()
+	n := t.tq.nodes[t.nodeIdx]
+	remove := n.action != nil && n.actionID == t.actionID
+	if remove {
+		t.tq.remove(t.nodeIdx)
 	}
+	t.tq.Unlock()
+	return remove
+}
+
+func (t token) Reset() bool {
+	timeout := time.Now().Add(t.tq.timeout)
+
+	t.tq.Lock()
+
+	n := t.tq.nodes[t.nodeIdx]
+	ok := n.action != nil && n.actionID == t.actionID
+	if !ok {
+		return false
+	}
+	n.timeout = timeout
+
+	// remove node from middle of list
+	if n.prev == empty {
+		t.tq.head = n.next
+	} else {
+		t.tq.nodes[n.prev].next = n.next
+	}
+	if n.next == empty {
+		t.tq.tail = n.prev
+	} else {
+		t.tq.nodes[n.next].prev = n.prev
+	}
+
+	// add to end of list
+	n.next = empty
+	n.prev = t.tq.tail
+	if t.tq.head == empty {
+		t.tq.head = uint32(t.nodeIdx)
+	} else {
+		t.tq.nodes[t.tq.tail].next = uint32(t.nodeIdx)
+	}
+	t.tq.tail = uint32(t.nodeIdx)
+	t.tq.nodes[t.nodeIdx] = n
+
+	t.tq.Unlock()
+	return true
+}
+
+func (token) private() {}
+
+type Token interface {
+	private()
+	Cancel() bool
+	Reset() bool
 }

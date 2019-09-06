@@ -15,14 +15,14 @@ func TestLinkedLists(t *testing.T) {
 
 	action := func() {}
 
-	cs := make([]func() bool, 3)
+	cs := make([]Token, 3)
 
 	cs[0] = tq.Add(action)
 	assert.EqualValues(t, 0, tq.head)
 	assert.EqualValues(t, 0, tq.tail)
 	assert.EqualValues(t, empty, tq.free)
 
-	assert.True(t, cs[0]())
+	assert.True(t, cs[0].Cancel())
 	assert.EqualValues(t, empty, tq.head)
 	assert.EqualValues(t, empty, tq.tail)
 	assert.EqualValues(t, 0, tq.free)
@@ -33,7 +33,7 @@ func TestLinkedLists(t *testing.T) {
 	assert.EqualValues(t, empty, tq.free)
 
 	// calling previous cancel again does nothing
-	assert.False(t, cs[0]())
+	assert.False(t, cs[0].Cancel())
 	assert.EqualValues(t, 0, tq.head)
 	assert.EqualValues(t, 0, tq.tail)
 	assert.EqualValues(t, empty, tq.free)
@@ -48,17 +48,17 @@ func TestLinkedLists(t *testing.T) {
 	assert.EqualValues(t, 2, tq.tail)
 	assert.EqualValues(t, empty, tq.free)
 
-	assert.True(t, cs[2]())
+	assert.True(t, cs[2].Cancel())
 	assert.EqualValues(t, 0, tq.head)
 	assert.EqualValues(t, 1, tq.tail)
 	assert.EqualValues(t, 2, tq.free)
 
-	assert.True(t, cs[1]())
+	assert.True(t, cs[1].Cancel())
 	assert.EqualValues(t, 1, tq.head)
 	assert.EqualValues(t, 1, tq.tail)
 	assert.EqualValues(t, 0, tq.free)
 
-	assert.True(t, cs[0]())
+	assert.True(t, cs[0].Cancel())
 	assert.EqualValues(t, empty, tq.head)
 	assert.EqualValues(t, empty, tq.tail)
 	assert.EqualValues(t, 1, tq.free)
