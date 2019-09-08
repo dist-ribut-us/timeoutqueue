@@ -157,6 +157,11 @@ func (tq *TimeoutQueue) Timeout() time.Duration {
 	return tq.timeout
 }
 
+// SetTimeout changes the timeout duration of the queue. Everything in the queue
+// will have it's timeout updated relative to when it was was added or reset. So
+// if the timeout is reset from 5ms to 10ms and there is a TimeoutAction in the
+// queueadded 3ms ago, it will go from expiring 2ms in the future to 7ms in the
+// future.
 func (tq *TimeoutQueue) SetTimeout(timeout time.Duration) {
 	tq.mux.Lock()
 	d := timeout - tq.timeout
