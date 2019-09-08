@@ -29,7 +29,7 @@ type node struct {
 // they timeout. The timeout duration is constant within a queue.
 type TimeoutQueue struct {
 	timeout time.Duration
-	running bool
+	running uint16
 	// nodes in use form a doubly linked list
 	head uint32
 	tail uint32
@@ -54,12 +54,18 @@ func New(timeout time.Duration, capacity int) *TimeoutQueue {
 	}
 }
 
-func (tq *TimeoutQueue) run() {
-	time.Sleep(tq.timeout)
+func (tq *TimeoutQueue) run(id uint16) {
+	if id == 1 {
+		time.Sleep(tq.timeout)
+	}
 	for {
 		tq.mux.Lock()
+		if id != tq.running {
+			// another thread has taken over
+			return
+		}
 		if tq.head == empty {
-			tq.running = false
+			tq.running = 0
 			tq.mux.Unlock()
 			return
 		}
@@ -137,13 +143,36 @@ func (tq *TimeoutQueue) Add(action TimeoutAction) Token {
 		t.actionID = tq.nodes[t.nodeIdx].actionID
 	}
 	tq.add(t.nodeIdx)
-	if !tq.running {
-		tq.running = true
-		go tq.run()
+	if tq.running == 0 {
+		tq.running = 1
+		go tq.run(1)
 	}
 	tq.mux.Unlock()
 
 	return t
+}
+
+// Timeout duration before the TimeoutAction is called.
+func (tq *TimeoutQueue) Timeout() time.Duration {
+	return tq.timeout
+}
+
+func (tq *TimeoutQueue) SetTimeout(timeout time.Duration) {
+	tq.mux.Lock()
+	d := timeout - tq.timeout
+	tq.timeout = timeout
+
+	if tq.head != empty {
+		for cur := tq.head; cur != empty; cur = tq.nodes[cur].next {
+			tq.nodes[cur].timeout = tq.nodes[cur].timeout.Add(d)
+		}
+		if d < 0 {
+			tq.running++
+			go tq.run(tq.running)
+		}
+	}
+
+	tq.mux.Unlock()
 }
 
 type token struct {
