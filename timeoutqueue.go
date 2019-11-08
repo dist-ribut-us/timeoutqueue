@@ -9,9 +9,8 @@ import (
 	"time"
 )
 
-// TimeoutAction is what is called when a timeout occures. It is not called in
-// it's own Go routine so depending on the complexity of the TimeoutAction, it
-// may need to call a Go routine to quickly return control to the queue.
+// TimeoutAction is what is called when a timeout occures. It will be called in
+// it's own Go routine unless it is invoked from Flush.
 type TimeoutAction func()
 
 const empty = ^uint32(0)
@@ -178,6 +177,26 @@ func (tq *TimeoutQueue) SetTimeout(timeout time.Duration) {
 	}
 
 	tq.mux.Unlock()
+}
+
+// Flush calls the TimeoutAction on everything in the queue. Actions are not
+// called in Go routines so that when Flush returns all Actions are complete.
+func (tq *TimeoutQueue) Flush() {
+	tq.mux.Lock()
+	tq.running = ^uint16(0)
+
+	for {
+		if tq.head == empty {
+			break
+		}
+		n := tq.nodes[tq.head]
+		tq.freeNode(tq.head)
+		n.action()
+	}
+
+	tq.running = 0
+	tq.mux.Unlock()
+	return
 }
 
 type token struct {

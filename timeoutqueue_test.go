@@ -1,11 +1,12 @@
 package timeoutqueue_test
 
 import (
+	"testing"
+	"time"
+
 	"github.com/dist-ribut-us/timeout"
 	"github.com/dist-ribut-us/timeoutqueue"
 	"github.com/stretchr/testify/assert"
-	"testing"
-	"time"
 )
 
 // Note: While it would be better to avoid time.Sleep in tests, when the
@@ -130,4 +131,26 @@ func TestIncreaseSetTimeout(t *testing.T) {
 	assert.NoError(t, timeout.After(7, func() {
 		assert.Equal(t, 1, <-ch)
 	}))
+}
+
+func TestFlush(t *testing.T) {
+	tq := timeoutqueue.New(time.Millisecond*5, 10)
+	ch := make(chan int)
+
+	tq.Add(getAction(ch, 1))
+	tq.Add(getAction(ch, 2))
+	tq.Add(getAction(ch, 3))
+
+	done := make(chan bool)
+	go func() {
+		assert.Equal(t, 1, <-ch)
+		assert.Equal(t, 2, <-ch)
+		assert.Equal(t, 3, <-ch)
+		done <- true
+	}()
+
+	tq.Flush()
+	assert.NoError(t, timeout.After(1, done))
+	// make sure nothing else sends on ch
+	assert.Error(t, timeout.After(5, ch))
 }
